@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>SOMA — Full Body Tracker</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet"/>
+
+<style>
+  :root {
+    --bg:      #050810;
+    --panel:   #0a0f1e;
+    --border:  #1a2540;
+    --accent:  #00f5c4;
+    --accent2: #ff4d6d;
+    --accent3: #ffd166;
+    --text:    #c8d6f0;
+    --dim:     #4a5a80;
+
+    --face-c:   #00f5c4;
+    --hand-l:   #4d9fff;
+    --hand-r:   #a78bfa;
+    --chest-c:  #ffd166;
+    --belly-c:  #ff9f1c;
+    --thigh-c:  #ff4d6d;
+    --shin-c:   #ff6b35;
+    --foot-c:   #06d6a0;
+    --spine-c:  #ffffff;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    min-height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* ── Scanline overlay ── */
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent, transparent 2px,
+      rgba(0,245,196,0.015) 2px, rgba(0,245,196,0.015) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* ═══════════════════════════════════════
+     PERMISSION SCREEN
+  ═══════════════════════════════════════ */
+  #permScreen {
+    position: fixed; inset: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg);
+  }
+
+  .perm-box {
+    text-align: center;
+    max-width: 480px;
+    padding: 3rem 2.5rem;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    position: relative;
+    clip-path: polygon(0 0, calc(100% - 24px) 0, 100% 24px, 100% 100%, 24px 100%, 0 calc(100% - 24px));
+  }
+
+  .perm-box::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse at 50% 0%, rgba(0,245,196,0.07) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .soma-logo {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.75rem;
+    letter-spacing: 0.4em;
+    color: var(--accent);
+    margin-bottom: 2rem;
+    opacity: 0.7;
+  }
+
+  .perm-icon {
+    width: 80px; height: 80px;
+    margin: 0 auto 1.5rem;
+    border: 2px solid var(--accent);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+    animation: pulseRing 2s ease-in-out infinite;
+  }
+
+  .perm-icon svg { width: 36px; height: 36px; color: var(--accent); }
+
+  @keyframes pulseRing {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(0,245,196,0.4); }
+    50%       { box-shadow: 0 0 0 16px rgba(0,245,196,0); }
+  }
+
+  .perm-title {
+    font-size: 2rem; font-weight: 800;
+    line-height: 1.1;
+    margin-bottom: 0.75rem;
+    background: linear-gradient(135deg, #fff 0%, var(--accent) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+
+  .perm-sub {
+    font-size: 0.875rem; color: var(--dim);
+    line-height: 1.6; margin-bottom: 2rem;
+    font-family: 'Space Mono', monospace;
+  }
+
+  .perm-features {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 0.5rem; margin-bottom: 2rem; text-align: left;
+  }
+
+  .feat-item {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-size: 0.75rem; font-family: 'Space Mono', monospace;
+    color: var(--dim);
+  }
+
+  .feat-dot {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  }
+
+  .btn-allow {
+    width: 100%;
+    padding: 0.9rem 2rem;
+    background: var(--accent);
+    color: #050810;
+    border: none; cursor: pointer;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.85rem; font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+    transition: all 0.2s;
+  }
+
+  .btn-allow:hover {
+    background: #00ffd0;
+    transform: translateY(-1px);
+    box-shadow: 0 8px 24px rgba(0,245,196,0.3);
+  }
+
+  /* ═══════════════════════════════════════
+     LOADING SCREEN
+  ═══════════════════════════════════════ */
+  #loadScreen {
+    position: fixed; inset: 0; z-index: 90;
+    display: none; align-items: center; justify-content: center;
+    background: var(--bg); flex-direction: column; gap: 1.5rem;
+  }
+
+  .load-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.75rem; letter-spacing: 0.3em;
+    color: var(--accent); text-transform: uppercase;
+  }
+
+  .load-bar-wrap {
+    width: 280px; height: 2px; background: var(--border); position: relative;
+  }
+
+  .load-bar {
+    height: 100%; width: 0%; background: var(--accent);
+    transition: width 0.3s ease;
+    box-shadow: 0 0 12px var(--accent);
+  }
+
+  .load-status {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.65rem; color: var(--dim);
+    letter-spacing: 0.1em;
+  }
+
+  /* ═══════════════════════════════════════
+     MAIN TRACKER UI
+  ═══════════════════════════════════════ */
+  #trackerUI {
+    display: none;
+    width: 100vw; height: 100vh;
+    position: relative;
+    flex-direction: column;
+  }
+
+  /* ── Header bar ── */
+  .hdr {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.75rem 1.25rem;
+    background: linear-gradient(180deg, rgba(5,8,16,0.9) 0%, transparent 100%);
+  }
+
+  .hdr-logo {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.7rem; letter-spacing: 0.5em;
+    color: var(--accent);
+  }
+
+  .hdr-status {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-family: 'Space Mono', monospace; font-size: 0.65rem;
+    color: var(--dim);
+  }
+
+  .status-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent);
+    animation: blink 1.5s ease-in-out infinite;
+  }
+
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+  /* ── Video + Canvas ── */
+  #videoEl {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1);
+  }
+
+  #overlayCanvas {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    transform: scaleX(-1);
+  }
+
+  /* ── Corner brackets ── */
+  .corner {
+    position: absolute; width: 24px; height: 24px;
+    border-color: var(--accent); border-style: solid;
+    opacity: 0.5; z-index: 5;
+  }
+  .corner.tl { top: 60px; left: 16px; border-width: 2px 0 0 2px; }
+  .corner.tr { top: 60px; right: 16px; border-width: 2px 2px 0 0; }
+  .corner.bl { bottom: 16px; left: 16px; border-width: 0 0 2px 2px; }
+  .corner.br { bottom: 16px; right: 16px; border-width: 0 2px 2px 0; }
+
+  /* ── Stats panel ── */
+  .stats-panel {
+    position: absolute; top: 70px; right: 16px; z-index: 10;
+    background: rgba(10,15,30,0.85);
+    border: 1px solid var(--border);
+    padding: 0.75rem 1rem;
+    clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%);
+    min-width: 160px;
+  }
+
+  .stat-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 1rem; margin-bottom: 0.4rem;
+  }
+  .stat-row:last-child { margin-bottom: 0; }
+
+  .stat-label {
+    font-family: 'Space Mono', monospace; font-size: 0.6rem;
+    color: var(--dim); letter-spacing: 0.1em; text-transform: uppercase;
+  }
+
+  .stat-val {
+    font-family: 'Space Mono', monospace; font-size: 0.65rem;
+    color: var(--accent); font-weight: 700;
+  }
+
+  /* ── Legend ── */
+  .legend {
+    position: absolute; bottom: 16px; left: 16px; z-index: 10;
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 0.3rem 1rem;
+    background: rgba(10,15,30,0.8);
+    border: 1px solid var(--border);
+    padding: 0.6rem 0.8rem;
+  }
+
+  .leg-item {
+    display: flex; align-items: center; gap: 0.4rem;
+    font-family: 'Space Mono', monospace; font-size: 0.58rem;
+    color: var(--dim);
+  }
+
+  .leg-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+  /* ── FPS counter ── */
+  .fps-box {
+    position: absolute; top: 70px; left: 16px; z-index: 10;
+    background: rgba(10,15,30,0.85);
+    border: 1px solid var(--border);
+    padding: 0.4rem 0.75rem;
+    font-family: 'Space Mono', monospace; font-size: 0.65rem;
+    color: var(--accent3);
+  }
+
+  #fpsVal { font-weight: 700; }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════
+     PERMISSION SCREEN
+════════════════════════════════════════ -->
+<div id="permScreen">
+  <div class="perm-box">
+    <div class="soma-logo">SOMA TRACKER v2.0</div>
+    <div class="perm-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+        <path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+      </svg>
+    </div>
+    <div class="perm-title">Full Body<br/>Tracking</div>
+    <div class="perm-sub">Real-time detection of face, hands, chest,<br/>belly, legs, and toes — all in your browser.</div>
+
+    <div class="perm-features">
+      <div class="feat-item"><div class="feat-dot" style="background:var(--face-c)"></div>468pt Face Mesh</div>
+      <div class="feat-item"><div class="feat-dot" style="background:var(--hand-l)"></div>21pt Hand Joints</div>
+      <div class="feat-item"><div class="feat-dot" style="background:var(--chest-c)"></div>Chest &amp; Belly</div>
+      <div class="feat-item"><div class="feat-dot" style="background:var(--thigh-c)"></div>Thighs &amp; Shins</div>
+      <div class="feat-item"><div class="feat-dot" style="background:var(--foot-c)"></div>Feet &amp; Toes</div>
+      <div class="feat-item"><div class="feat-dot" style="background:var(--spine-c)"></div>Full Spine</div>
+    </div>
+
+    <button class="btn-allow" onclick="startTracking()">
+      ▶ &nbsp; Enable Camera
+    </button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     LOADING SCREEN
+════════════════════════════════════════ -->
+<div id="loadScreen">
+  <div class="load-label">Initialising Models</div>
+  <div class="load-bar-wrap"><div class="load-bar" id="loadBar"></div></div>
+  <div class="load-status" id="loadStatus">Loading face model...</div>
+</div>
+
+<!-- ══════════════════════════════════════
+     TRACKER UI
+════════════════════════════════════════ -->
+<div id="trackerUI">
+  <video id="videoEl" autoplay muted playsinline></video>
+  <canvas id="overlayCanvas"></canvas>
+
+  <!-- Header -->
+  <div class="hdr">
+    <div class="hdr-logo">◈ SOMA TRACKER</div>
+    <div class="hdr-status"><div class="status-dot"></div>LIVE TRACKING</div>
+  </div>
+
+  <!-- Corners -->
+  <div class="corner tl"></div>
+  <div class="corner tr"></div>
+  <div class="corner bl"></div>
+  <div class="corner br"></div>
+
+  <!-- FPS -->
+  <div class="fps-box">FPS&nbsp;<span id="fpsVal">--</span></div>
+
+  <!-- Stats -->
+  <div class="stats-panel">
+    <div class="stat-row"><span class="stat-label">Faces</span><span class="stat-val" id="statFaces">0</span></div>
+    <div class="stat-row"><span class="stat-label">Hands</span><span class="stat-val" id="statHands">0</span></div>
+    <div class="stat-row"><span class="stat-label">Pose</span><span class="stat-val" id="statPose">—</span></div>
+    <div class="stat-row"><span class="stat-label">Landmarks</span><span class="stat-val" id="statLm">0</span></div>
+  </div>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="leg-item"><div class="leg-dot" style="background:#00f5c4"></div>Face</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#4d9fff"></div>Left Hand</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#a78bfa"></div>Right Hand</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#ffd166"></div>Chest</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#ff9f1c"></div>Belly</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#ff4d6d"></div>Thighs</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#ff6b35"></div>Shins</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#06d6a0"></div>Feet+Toes</div>
+  </div>
+</div>
+
+<!-- MediaPipe CDN -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+
+<script>
+// ─── DOM refs ─────────────────────────────────────────────────────────────
+const permScreen  = document.getElementById('permScreen');
+const loadScreen  = document.getElementById('loadScreen');
+const trackerUI   = document.getElementById('trackerUI');
+const video       = document.getElementById('videoEl');
+const canvas      = document.getElementById('overlayCanvas');
+const ctx         = canvas.getContext('2d');
+const loadBar     = document.getElementById('loadBar');
+const loadStatus  = document.getElementById('loadStatus');
+
+// ─── State ────────────────────────────────────────────────────────────────
+let faceResults = null;
+let handResults = null;
+let poseResults = null;
+
+let lastFrame = performance.now();
+let frameCount = 0;
+let fps = 0;
+
+// Shared result stores so all three pipelines can render together
+let lastFace = null, lastHand = null, lastPose = null;
+
+// ─── Colors ───────────────────────────────────────────────────────────────
+const C = {
+  face    : '#00f5c4',
+  faceEye : '#00e5ff',
+  faceLip : '#ff4d6d',
+  handL   : '#4d9fff',
+  handR   : '#a78bfa',
+  chest   : 'rgba(255,209,102,0.55)',
+  belly   : 'rgba(255,159,28,0.45)',
+  lThigh  : 'rgba(255,77,109,0.4)',
+  rThigh  : 'rgba(255,77,109,0.4)',
+  lShin   : 'rgba(255,107,53,0.4)',
+  rShin   : 'rgba(255,107,53,0.4)',
+  lFoot   : '#06d6a0',
+  rFoot   : '#06d6a0',
+  spine   : '#ffffff',
+  thumb   : '#ffd166',
+  index   : '#06d6a0',
+  middle  : '#4d9fff',
+  ring    : '#ff9f1c',
+  pinky   : '#ff4d6d',
+};
+
+// ─── Resize canvas to match video ────────────────────────────────────────
+function resizeCanvas() {
+  canvas.width  = video.videoWidth  || window.innerWidth;
+  canvas.height = video.videoHeight || window.innerHeight;
+}
+
+// ─── Helper: normalised → pixel ──────────────────────────────────────────
+function px(lm) {
+  return [lm.x * canvas.width, lm.y * canvas.height];
+}
+
+function pxIdx(lms, i) {
+  return px(lms[i]);
+}
+
+// ─── Draw helpers ─────────────────────────────────────────────────────────
+function dot(x, y, r, color) {
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+function line(ax, ay, bx, by, color, w = 1.5) {
+  ctx.beginPath();
+  ctx.moveTo(ax, ay);
+  ctx.lineTo(bx, by);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = w;
+  ctx.stroke();
+}
+
+function filledPoly(pts, fillColor, strokeColor, alpha = 0.25) {
+  if (pts.length < 3) return;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath();
+  ctx.fillStyle = fillColor;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  if (strokeColor) {
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ─── FACE ─────────────────────────────────────────────────────────────────
+const FACE_OUTER = [10,338,297,332,284,251,389,356,454,323,361,288,
+  397,365,379,378,400,377,152,148,176,149,150,136,172,58,132,93,234,127,162,21,54,103,67,109,10];
+
+const EYE_L = [33,7,163,144,145,153,154,155,133,173,157,158,159,160,161,246,33];
+const EYE_R = [362,382,381,380,374,373,390,249,263,466,388,387,386,385,384,398,362];
+const LIP_OUTER = [61,185,40,39,37,0,267,269,270,409,291,375,321,405,314,17,84,181,91,146,61];
+const LIP_INNER = [78,191,80,81,82,13,312,311,310,415,308,324,318,402,317,14,87,178,88,95,78];
+
+function drawFace(lms) {
+  if (!lms) return;
+  const color = C.face;
+
+  // All 468 micro dots
+  for (const lm of lms) {
+    const [x, y] = px(lm);
+    dot(x, y, 0.8, color);
+  }
+
+  // Outer contour
+  ctx.beginPath();
+  ctx.strokeStyle = color + 'aa';
+  ctx.lineWidth = 1.2;
+  for (let i = 0; i < FACE_OUTER.length; i++) {
+    const [x, y] = pxIdx(lms, FACE_OUTER[i]);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // Eyes
+  for (const eye of [EYE_L, EYE_R]) {
+    ctx.beginPath(); ctx.strokeStyle = C.faceEye; ctx.lineWidth = 1;
+    for (let i = 0; i < eye.length; i++) {
+      const [x, y] = pxIdx(lms, eye[i]);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  // Lips
+  for (const lip of [LIP_OUTER, LIP_INNER]) {
+    ctx.beginPath(); ctx.strokeStyle = C.faceLip + 'cc'; ctx.lineWidth = 1;
+    for (let i = 0; i < lip.length; i++) {
+      const [x, y] = pxIdx(lms, lip[i]);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+}
+
+// ─── HANDS ────────────────────────────────────────────────────────────────
+const FINGER_GROUPS = {
+  thumb : [1,2,3,4],
+  index : [5,6,7,8],
+  middle: [9,10,11,12],
+  ring  : [13,14,15,16],
+  pinky : [17,18,19,20],
+};
+const FINGER_COLORS = {
+  thumb: C.thumb, index: C.index, middle: C.middle,
+  ring: C.ring,   pinky: C.pinky,
+};
+const PALM_IDX = [0,1,5,9,13,17];
+const HAND_CONNECTIONS = [
+  [0,1],[1,2],[2,3],[3,4],
+  [0,5],[5,6],[6,7],[7,8],
+  [0,9],[9,10],[10,11],[11,12],
+  [0,13],[13,14],[14,15],[15,16],
+  [0,17],[17,18],[18,19],[19,20],
+  [5,9],[9,13],[13,17],
+];
+
+function drawHand(lms, label) {
+  const isLeft  = label === 'Left';
+  const baseCol = isLeft ? C.handL : C.handR;
+  const W = canvas.width, H = canvas.height;
+
+  // Palm fill
+  const palmPts = PALM_IDX.map(i => [lms[i].x * W, lms[i].y * H]);
+  filledPoly(palmPts, baseCol, baseCol, 0.15);
+
+  // Each finger
+  for (const [fname, joints] of Object.entries(FINGER_GROUPS)) {
+    const fc = FINGER_COLORS[fname];
+    for (let i = 0; i < joints.length - 1; i++) {
+      const [ax, ay] = [lms[joints[i]].x * W, lms[joints[i]].y * H];
+      const [bx, by] = [lms[joints[i+1]].x * W, lms[joints[i+1]].y * H];
+      line(ax, ay, bx, by, fc, 2);
+    }
+    joints.forEach((j, k) => {
+      const [x, y] = [lms[j].x * W, lms[j].y * H];
+      dot(x, y, k === joints.length - 1 ? 5 : 3, fc);
+    });
+    // Connect MCP to wrist
+    const [wx, wy] = [lms[0].x * W, lms[0].y * H];
+    const [mx, my] = [lms[joints[0]].x * W, lms[joints[0]].y * H];
+    line(wx, wy, mx, my, fc, 1);
+  }
+
+  // Wrist dot
+  dot(lms[0].x * W, lms[0].y * H, 5, baseCol);
+}
+
+// ─── POSE / BODY ──────────────────────────────────────────────────────────
+const PL = {
+  NOSE:0, L_SHOULDER:11, R_SHOULDER:12,
+  L_ELBOW:13, R_ELBOW:14, L_WRIST:15, R_WRIST:16,
+  L_HIP:23, R_HIP:24,
+  L_KNEE:25, R_KNEE:26,
+  L_ANKLE:27, R_ANKLE:28,
+  L_HEEL:29, R_HEEL:30,
+  L_FOOT:31, R_FOOT:32,
+};
+
+function posePx(lms, idx) {
+  const lm = lms[idx];
+  return [lm.x * canvas.width, lm.y * canvas.height, lm.visibility];
+}
+
+function poseVisible(lms, ...indices) {
+  return indices.every(i => lms[i] && lms[i].visibility > 0.3);
+}
+
+function drawPoseRegion(lms, indices, fillColor) {
+  if (!indices.every(i => poseVisible(lms, i))) return;
+  const pts = indices.map(i => { const [x,y] = posePx(lms, i); return [x,y]; });
+  filledPoly(pts, fillColor, fillColor, 0.3);
+}
+
+function drawBone(lms, a, b, color, w = 2) {
+  if (!poseVisible(lms, a, b)) return;
+  const [ax, ay] = posePx(lms, a);
+  const [bx, by] = posePx(lms, b);
+  line(ax, ay, bx, by, color, w);
+}
+
+function drawJoint(lms, idx, color, r = 5) {
+  if (!poseVisible(lms, idx)) return;
+  const [x, y] = posePx(lms, idx);
+  dot(x, y, r, color);
+}
+
+function drawLabel(lms, idx, text, color) {
+  if (!poseVisible(lms, idx)) return;
+  const [x, y] = posePx(lms, idx);
+  ctx.font = '600 10px Space Mono, monospace';
+  ctx.fillStyle = color;
+  ctx.fillText(text, x + 6, y - 4);
+}
+
+// ── Foot + toe estimator ───────────────────────────────────────────────────
+function drawFootToes(lms, side) {
+  const isLeft = side === 'left';
+  const aIdx  = isLeft ? PL.L_ANKLE : PL.R_ANKLE;
+  const hIdx  = isLeft ? PL.L_HEEL  : PL.R_HEEL;
+  const fIdx  = isLeft ? PL.L_FOOT  : PL.R_FOOT;
+  const color = isLeft ? C.lFoot    : C.rFoot;
+
+  if (!poseVisible(lms, aIdx, hIdx, fIdx)) return;
+
+  const W = canvas.width, H = canvas.height;
+  const ankle = [lms[aIdx].x * W, lms[aIdx].y * H];
+  const heel  = [lms[hIdx].x * W, lms[hIdx].y * H];
+  const foot  = [lms[fIdx].x * W, lms[fIdx].y * H];
+
+  // Direction vectors
+  const vx = foot[0] - heel[0], vy = foot[1] - heel[1];
+  const len = Math.sqrt(vx*vx + vy*vy) || 1;
+  const dir = [vx/len, vy/len];
+  const perp = [-dir[1], dir[0]];
+  const fw = len * 0.35; // foot width
+
+  const NUM_TOES = 5;
+  const toeTips = [];
+  const toeBases = [];
+
+  for (let i = 0; i < NUM_TOES; i++) {
+    const t = (i / (NUM_TOES - 1)) - 0.5;  // -0.5 → 0.5
+    const lf = 1.0 - 0.3 * Math.abs(t * 2); // middle toe longer
+    const base = [
+      foot[0] + perp[0] * t * fw * 0.6,
+      foot[1] + perp[1] * t * fw * 0.6,
+    ];
+    const tip = [
+      base[0] + dir[0] * len * 0.18 * lf + perp[0] * t * fw,
+      base[1] + dir[1] * len * 0.18 * lf + perp[1] * t * fw,
+    ];
+    toeBases.push(base);
+    toeTips.push(tip);
+
+    // Toe segment
+    line(base[0], base[1], tip[0], tip[1], color, 1.5);
+    dot(tip[0],  tip[1],  3, color);
+    dot(base[0], base[1], 2, color);
+  }
+
+  // Connect toe tips laterally
+  for (let i = 0; i < NUM_TOES - 1; i++) {
+    line(toeTips[i][0], toeTips[i][1], toeTips[i+1][0], toeTips[i+1][1], color + '88', 1);
+  }
+
+  // Foot outline
+  ctx.beginPath();
+  ctx.strokeStyle = color + 'aa'; ctx.lineWidth = 1.5;
+  ctx.moveTo(heel[0], heel[1]);
+  for (const b of toeBases) ctx.lineTo(b[0], b[1]);
+  ctx.lineTo(ankle[0], ankle[1]);
+  ctx.stroke();
+
+  // Dots on foot skeleton
+  dot(ankle[0], ankle[1], 4, color);
+  dot(heel[0],  heel[1],  4, color);
+  dot(foot[0],  foot[1],  4, color);
+  line(ankle[0], ankle[1], heel[0], heel[1], color, 1.5);
+  line(heel[0],  heel[1],  foot[0], foot[1], color, 1.5);
+  line(ankle[0], ankle[1], foot[0], foot[1], color, 1.5);
+}
+
+function drawBody(lms) {
+  if (!lms) return;
+
+  // ── Filled regions ────────────────────────────────────────────
+  // Chest
+  drawPoseRegion(lms, [PL.L_SHOULDER, PL.R_SHOULDER, PL.R_HIP, PL.L_HIP], C.chest);
+  // Belly (hip to knee)
+  drawPoseRegion(lms, [PL.L_HIP, PL.R_HIP, PL.R_KNEE, PL.L_KNEE], C.belly);
+  // Thighs
+  drawPoseRegion(lms, [PL.L_HIP, PL.L_KNEE, PL.L_ANKLE], C.lThigh);
+  drawPoseRegion(lms, [PL.R_HIP, PL.R_KNEE, PL.R_ANKLE], C.rThigh);
+  // Shins
+  drawPoseRegion(lms, [PL.L_KNEE, PL.L_ANKLE, PL.L_HEEL], C.lShin);
+  drawPoseRegion(lms, [PL.R_KNEE, PL.R_ANKLE, PL.R_HEEL], C.rShin);
+
+  // ── Bones ────────────────────────────────────────────────────
+  // Spine / torso
+  drawBone(lms, PL.L_SHOULDER, PL.R_SHOULDER, C.spine, 2);
+  drawBone(lms, PL.L_HIP,      PL.R_HIP,      C.spine, 2);
+  drawBone(lms, PL.L_SHOULDER, PL.L_HIP,      C.spine, 1.5);
+  drawBone(lms, PL.R_SHOULDER, PL.R_HIP,      C.spine, 1.5);
+  // Nose to shoulders
+  drawBone(lms, PL.NOSE, PL.L_SHOULDER, '#ffffff66', 1);
+  drawBone(lms, PL.NOSE, PL.R_SHOULDER, '#ffffff66', 1);
+
+  // Arms
+  drawBone(lms, PL.L_SHOULDER, PL.L_ELBOW, '#a78bfa', 2);
+  drawBone(lms, PL.L_ELBOW,    PL.L_WRIST, '#a78bfa', 2);
+  drawBone(lms, PL.R_SHOULDER, PL.R_ELBOW, '#4d9fff', 2);
+  drawBone(lms, PL.R_ELBOW,    PL.R_WRIST, '#4d9fff', 2);
+
+  // Legs
+  drawBone(lms, PL.L_HIP,   PL.L_KNEE,  '#ff4d6d', 2.5);
+  drawBone(lms, PL.L_KNEE,  PL.L_ANKLE, '#ff6b35', 2);
+  drawBone(lms, PL.R_HIP,   PL.R_KNEE,  '#ff4d6d', 2.5);
+  drawBone(lms, PL.R_KNEE,  PL.R_ANKLE, '#ff6b35', 2);
+
+  // ── Joints (dots) ────────────────────────────────────────────
+  const joints = [
+    [PL.NOSE,       '#ffffffcc', 5],
+    [PL.L_SHOULDER, '#a78bfa',   6],
+    [PL.R_SHOULDER, '#4d9fff',   6],
+    [PL.L_ELBOW,    '#a78bfa',   5],
+    [PL.R_ELBOW,    '#4d9fff',   5],
+    [PL.L_WRIST,    '#a78bfa',   4],
+    [PL.R_WRIST,    '#4d9fff',   4],
+    [PL.L_HIP,      '#ffd166',   6],
+    [PL.R_HIP,      '#ffd166',   6],
+    [PL.L_KNEE,     '#ff4d6d',   6],
+    [PL.R_KNEE,     '#ff4d6d',   6],
+    [PL.L_ANKLE,    '#ff6b35',   5],
+    [PL.R_ANKLE,    '#ff6b35',   5],
+  ];
+  for (const [idx, col, r] of joints) drawJoint(lms, idx, col, r);
+
+  // ── Labels ───────────────────────────────────────────────────
+  const labels = [
+    [PL.NOSE,       'nose',       '#ccc'],
+    [PL.L_SHOULDER, 'L.shoulder', '#a78bfa'],
+    [PL.R_SHOULDER, 'R.shoulder', '#4d9fff'],
+    [PL.L_HIP,      'L.hip',      '#ffd166'],
+    [PL.R_HIP,      'R.hip',      '#ffd166'],
+    [PL.L_KNEE,     'L.knee',     '#ff4d6d'],
+    [PL.R_KNEE,     'R.knee',     '#ff4d6d'],
+    [PL.L_ANKLE,    'L.ankle',    '#ff6b35'],
+    [PL.R_ANKLE,    'R.ankle',    '#ff6b35'],
+    [PL.L_HEEL,     'L.heel',     '#06d6a0'],
+    [PL.R_HEEL,     'R.heel',     '#06d6a0'],
+    [PL.L_FOOT,     'L.foot',     '#06d6a0'],
+    [PL.R_FOOT,     'R.foot',     '#06d6a0'],
+  ];
+  for (const [idx, label, col] of labels) drawLabel(lms, idx, label, col);
+
+  // ── Feet + Toes ───────────────────────────────────────────────
+  drawFootToes(lms, 'left');
+  drawFootToes(lms, 'right');
+}
+
+// ─── Stats update ─────────────────────────────────────────────────────────
+function updateStats(faceRes, handRes, poseRes) {
+  document.getElementById('statFaces').textContent =
+    faceRes?.multiFaceLandmarks?.length ?? 0;
+  document.getElementById('statHands').textContent =
+    handRes?.multiHandLandmarks?.length ?? 0;
+  document.getElementById('statPose').textContent =
+    poseRes?.poseLandmarks ? 'YES' : '—';
+
+  let total = 0;
+  if (faceRes?.multiFaceLandmarks)
+    total += faceRes.multiFaceLandmarks.reduce((a,f) => a + f.length, 0);
+  if (handRes?.multiHandLandmarks)
+    total += handRes.multiHandLandmarks.reduce((a,h) => a + h.length, 0);
+  if (poseRes?.poseLandmarks)
+    total += poseRes.poseLandmarks.length;
+  document.getElementById('statLm').textContent = total;
+}
+
+// ─── FPS counter ──────────────────────────────────────────────────────────
+function updateFPS() {
+  frameCount++;
+  const now = performance.now();
+  if (now - lastFrame >= 500) {
+    fps = Math.round(frameCount * 1000 / (now - lastFrame));
+    document.getElementById('fpsVal').textContent = fps;
+    frameCount = 0;
+    lastFrame = now;
+  }
+}
+
+// ─── Render frame ─────────────────────────────────────────────────────────
+function renderFrame() {
+  resizeCanvas();
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Face
+  if (lastFace?.multiFaceLandmarks) {
+    for (const face of lastFace.multiFaceLandmarks) drawFace(face);
+  }
+
+  // Pose body
+  if (lastPose?.poseLandmarks) drawBody(lastPose.poseLandmarks);
+
+  // Hands
+  if (lastHand?.multiHandLandmarks) {
+    lastHand.multiHandLandmarks.forEach((hand, i) => {
+      const label = lastHand.multiHandedness[i]?.label ?? 'Right';
+      drawHand(hand, label);
+    });
+  }
+
+  updateStats(lastFace, lastHand, lastPose);
+  updateFPS();
+  requestAnimationFrame(renderFrame);
+}
+
+// ─── Model init ───────────────────────────────────────────────────────────
+async function startTracking() {
+  permScreen.style.display = 'none';
+  loadScreen.style.display = 'flex';
+
+  // Camera
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 1280, height: 720, facingMode: 'user' }, audio: false,
+    });
+  } catch (e) {
+    alert('Camera access denied or unavailable.\n' + e.message);
+    permScreen.style.display = 'flex';
+    loadScreen.style.display = 'none';
+    return;
+  }
+
+  video.srcObject = stream;
+  await new Promise(res => video.onloadedmetadata = res);
+  video.play();
+
+  const setLoad = (pct, msg) => {
+    loadBar.style.width = pct + '%';
+    loadStatus.textContent = msg;
+  };
+
+  // ── FaceMesh ──────────────────────────────────────────────────
+  setLoad(10, 'Loading face model...');
+  const faceMesh = new FaceMesh({ locateFile: f =>
+    `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}` });
+  faceMesh.setOptions({
+    maxNumFaces: 4,
+    refineLandmarks: true,
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence : 0.5,
+  });
+  faceMesh.onResults(r => { lastFace = r; });
+  await faceMesh.initialize();
+  setLoad(35, 'Loading hand model...');
+
+  // ── Hands ─────────────────────────────────────────────────────
+  const hands = new Hands({ locateFile: f =>
+    `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
+  hands.setOptions({
+    maxNumHands: 4,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence : 0.5,
+  });
+  hands.onResults(r => { lastHand = r; });
+  await hands.initialize();
+  setLoad(65, 'Loading pose model...');
+
+  // ── Pose ──────────────────────────────────────────────────────
+  const pose = new Pose({ locateFile: f =>
+    `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}` });
+  pose.setOptions({
+    modelComplexity: 1,
+    smoothLandmarks: true,
+    enableSegmentation: false,
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence : 0.5,
+  });
+  pose.onResults(r => { lastPose = r; });
+  await pose.initialize();
+  setLoad(90, 'Starting camera...');
+
+  // ── Camera loop ───────────────────────────────────────────────
+  const camera = new Camera(video, {
+    onFrame: async () => {
+      await faceMesh.send({ image: video });
+      await hands.send({ image: video });
+      await pose.send({ image: video });
+    },
+    width: 1280, height: 720,
+  });
+  await camera.start();
+
+  setLoad(100, 'Ready!');
+  await new Promise(r => setTimeout(r, 400));
+
+  loadScreen.style.display = 'none';
+  trackerUI.style.display  = 'flex';
+  requestAnimationFrame(renderFrame);
+}
+
+// Resize canvas on window resize
+window.addEventListener('resize', resizeCanvas);
+</script>
+</body>
+</html>
